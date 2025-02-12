@@ -1,0 +1,15 @@
+version: '3'
+services:
+  blue:
+    image: blue-app
+    build:
+      context: .
+    ports:
+      - "8081:3000"
+  green:
+    image: green-app
+    build:
+      context: .
+    ports:
+      - "8082:3000"
+
