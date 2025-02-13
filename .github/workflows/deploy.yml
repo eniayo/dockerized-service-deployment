@@ -20,11 +20,9 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/dockerized-service-deployment:latest
-          echo "Building Docker Image: $IMAGE_NAME"
+          IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/blue-green:latest
           docker build -t $IMAGE_NAME .
           docker push $IMAGE_NAME
-          echo "Docker Image Pushed Successfully."
 
   deploy:
     needs: build
@@ -33,28 +31,19 @@ jobs:
       - name: Determine Active Server
         id: active-server
         run: |
-          set -e
-          echo "Checking which server is active..."
-          
-          if curl -s --max-time 5 http://${{ secrets.BLUE_HOST }}:8080 > /dev/null; then
-            echo "BLUE server is active. Deploying to GREEN..."
-            echo "TARGET_HOST=${{ secrets.GREEN_HOST }}" >> $GITHUB_ENV
-          else
-            echo "GREEN server is active or BLUE is down. Deploying to BLUE..."
-            echo "TARGET_HOST=${{ secrets.BLUE_HOST }}" >> $GITHUB_ENV
-          fi
+          BLUE_STATUS=$(curl -s --max-time 5 http://${{ secrets.BLUE_HOST }}:3000 || true)
+          GREEN_STATUS=$(curl -s --max-time 5 http://${{ secrets.GREEN_HOST }}:3000 || true)
 
-      - name: Debug Server Connection
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.TARGET_HOST }}
-          username: root
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            echo "🔍 Checking server details..."
-            uname -a
-            docker --version
-            docker ps -a
+          if [[ -n "$BLUE_STATUS" ]]; then
+            echo "BLUE is active. Deploying to GREEN..."
+            echo "TARGET_HOST=${{ secrets.GREEN_HOST }}" >> "$GITHUB_ENV"
+          elif [[ -n "$GREEN_STATUS" ]]; then
+            echo "GREEN is active. Deploying to BLUE..."
+            echo "TARGET_HOST=${{ secrets.BLUE_HOST }}" >> "$GITHUB_ENV"
+          else
+            echo "No active instance found! Defaulting to BLUE..."
+            echo "TARGET_HOST=${{ secrets.BLUE_HOST }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Deploy to Target Server
         uses: appleboy/ssh-action@v1.0.3
@@ -63,27 +52,23 @@ jobs:
           username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            set -e
-            IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/dockerized-service-deployment:latest
-            echo "📦 Pulling the latest Docker image: $IMAGE_NAME"
+            IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/blue-green:latest
+            echo "🚀 Pulling latest image..."
             docker pull $IMAGE_NAME
-            
-            echo "🛑 Stopping existing container (if running)..."
+
+            echo "🛑 Stopping existing container (if any)..."
             docker stop my_app || true
             docker rm my_app || true
 
             echo "🚀 Running new container..."
-            docker run -d --name my_app -p 8080:8080 $IMAGE_NAME
-
-            echo "✅ Deployment completed. Running containers:"
-            docker ps
+            docker run -d --name my_app -p 3000:3000 $IMAGE_NAME
 
       - name: Health Check
         run: |
           echo "⏳ Waiting for service to start..."
           sleep 10
           echo "🔍 Checking service availability..."
-          if curl -s --max-time 10 http://${{ env.TARGET_HOST }}:8080; then
+          if curl -s --max-time 10 http://${{ env.TARGET_HOST }}:3000; then
             echo "✅ Deployment successful!"
           else
             echo "❌ Deployment failed!" && exit 1
