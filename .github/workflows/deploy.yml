@@ -31,24 +31,23 @@ jobs:
       - name: Determine Active Server
         id: active-server
         run: |
-          ACTIVE_SERVER=$(curl -s http://${{ secrets.BLUE_HOST }}:8080 || echo "green")
-          if [[ "$ACTIVE_SERVER" == "blue" ]]; then
+          ACTIVE_SERVER=$(curl -s http://${{ secrets.BLUE_HOST }}:8080 || true)
+          if [[ -n "$ACTIVE_SERVER" ]]; then
             echo "Deploying to GREEN server..."
-            echo "TARGET_HOST=${{ secrets.GREEN_HOST }}" >> $GITHUB_ENV
+            echo "TARGET_HOST=${{ secrets.GREEN_HOST }}" >> "$GITHUB_ENV"
           else
             echo "Deploying to BLUE server..."
-            echo "TARGET_HOST=${{ secrets.BLUE_HOST }}" >> $GITHUB_ENV
+            echo "TARGET_HOST=${{ secrets.BLUE_HOST }}" >> "$GITHUB_ENV"
           fi
 
       - name: Deploy to Target Server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.TARGET_HOST }}
-          username: ${{ secrets.REMOTE_USER }}
+          username: root
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME 
-}}/dockerized-service-deployment:latest
+            IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/dockerized-service-deployment:latest
             docker pull $IMAGE_NAME
             docker stop my_app || true
             docker rm my_app || true
@@ -62,5 +61,4 @@ jobs:
           else
             echo "Deployment failed!" && exit 1
           fi
-
 
